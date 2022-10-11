@@ -1,7 +1,8 @@
 import ast
+from multiprocessing import Manager
 import os
 import textwrap
-from Typing import Union, Optional
+from typing import Union, Optional
 
 def parse(
     code: str,
@@ -11,4 +12,7 @@ def parse(
 ):
     """Parses a source string in order to obtain an astroid AST from it."""
     code = textwrap.dedent(code)
-    return code
+    builder = Builder(
+        manager=Manager(), apply_transforms=apply_transforms
+    )
+    return builder.string_build(code, modname=module_name, path=path)
