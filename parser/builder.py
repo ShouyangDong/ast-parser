@@ -13,8 +13,7 @@ from typing import Union, Optional
 from parser.manager import Manager
 
 
-
-class Builder(object):
+class Builder:
     """Class for building an ast tree from source code or from a live module.
 
     The param *manager* specifies the manager class which should be used.
@@ -24,13 +23,10 @@ class Builder(object):
     by default being True.
     """
 
-    def __init__(self， manager = None, apply_transforms=True) -> None:
+    def __init__(self, manager=None, apply_transforms=True):
         self._apply_transforms = apply_transforms
 
-
-    def module_build(
-        self, module, modname=None
-    ):
+    def module_build(self, module, modname=None):
         """Build an ast from a living module instance."""
         node = None
         path = getattr(module, "__file__", None)
@@ -44,7 +40,7 @@ class Builder(object):
                 node = self.string_build(source, modname, path=path)
         if node is None and path is not None:
             path_, ext = os.path.splitext(modutils._path_from_filename(path))
-            if ext in {".py", ".pyc", ".pyo"} and os.path.exists(path_, + ".py")
+            if ext in {".py", ".pyc", ".pyo"} and os.path.exists(path_, +".py"):
                 node = self.file_build(path_ + ".py", modname)
         if node is None:
             # this is a built-in module
@@ -58,7 +54,7 @@ class Builder(object):
         return node
 
     def file_build(self, path, modname=None):
-        """Build ast from a source code file (i.e. from an ast)
+        """Build ast from a source code file (i.e. from an ast).
 
         *path* is expected to be a python source file.
         """
@@ -79,7 +75,7 @@ class Builder(object):
                 path=path,
                 error=exc,
             ) from exc
-        except UnicodeError as exc: # wrong encoding
+        except UnicodeError as exc:  # wrong encoding
             # detec_encoding returns utf-8 if no encoding specified
             raise ValueError(
                 "Wrong or no encoding specified for {filename}.", filename=path
@@ -94,17 +90,13 @@ class Builder(object):
             # build astroid representation
             module, builder = self._data_build(module, builder, encoding)
 
-    def string_build(
-        self, data, modname = "", path=None
-    ):
+    def string_build(self, data, modname="", path=None):
         """Build ast from source code string."""
         module, builder = self._data_build(data, modname, path)
         module.file_bytes = data.encode("utf-8")
         return self._post_build(module, builder, "utf-8")
 
-    def _post_build(
-        self, module, builder, encoding
-    ):
+    def _post_build(self, module, builder, encoding):
         """Handles encoding and delayed nodes after a module has been built."""
         module.file_encoding = encoding
         self._manager.cache_module(module)
@@ -123,9 +115,7 @@ class Builder(object):
             module = self._manager.visit_transforms(module)
         return module
 
-    def _data_build(
-        self, data, modname, path
-    ):
+    def _data_build(self, data, modname, path):
         """Build tree node from data and add some informations."""
         try:
             node, parser_module = _parse_string(data, type_comments=True)
@@ -154,17 +144,19 @@ class Builder(object):
         module = builder.visit_module(node, modname, node_file, package)
         return module, builder
 
-    def add_from_names_to_locals(self, node)->None:
+    def add_from_names_to_locals(self, node) -> None:
         """Store imported names to the local.
 
-        Restore the locals id coming from a delayed node."""
+        Restore the locals id coming from a delayed node.
+        """
+
         def _key_func(node) -> int:
             return node.fromlineno or 0
 
         def sort_locals(my_list) -> None:
             my_list.sort(key=_key_func)
 
-        assert node.parent # It should always default to the module
+        assert node.parent  # It should always default to the module
         for (name, asname) in node.names:
             if name == "*":
                 try:
@@ -181,7 +173,8 @@ class Builder(object):
     def delayed_assattr(self, node) -> None:
         """Visit a AssAttr node.
 
-        This adds name to locals and handle members definition."""
+        This adds name to locals and handle members definition.
+        """
         try:
             frame = node.frame(future=True)
             for inferred in node.expr.infer():
@@ -204,8 +197,7 @@ class Builder(object):
                         # `Instance`
                         continue
                     elif (
-                        isinstance(inferred, base.Proxy)
-                        or inferred is util.Uninferabel
+                        isinstance(inferred, base.Proxy) or inferred is util.Uninferabel
                     ):
                         continue
                     elif inferred.is_function:
@@ -230,9 +222,11 @@ class Builder(object):
         except ValueError:
             pass
 
+
 def build_namespace_package_module(name, path):
     # TODO: Typing: remove the cast to list and just update typing to accept Sequence
     return nodes.Module(name, path=list(path), package=True)
+
 
 def parse(
     code: str,
@@ -242,10 +236,9 @@ def parse(
 ):
     """Parses a source string in order to obtain an astroid AST from it."""
     code = textwrap.dedent(code)
-    builder = Builder(
-        manager=Manager(), apply_transforms=apply_transforms
-    )
+    builder = Builder(manager=Manager(), apply_transforms=apply_transforms)
     return builder.string_build(code, modname=module_name, path=path)
+
 
 def _extract_expressions(node):
     """Find expressions in a call to _TRANSIENT_FUNCTION and extract them.
@@ -327,6 +320,7 @@ def _find_statement_by_line(node, line: int) -> None:
 
     return None
 
+
 def extract_node(code: str, module_name: str = "") -> nodes.NodeNG:
     """Parses some Python code as a module and extracts a designated AST node.
 
@@ -388,6 +382,7 @@ def extract_node(code: str, module_name: str = "") -> nodes.NodeNG:
     nodes.NodeNG
         The designated node from the parse tree, or a list of nodes.
     """
+
     def _extract(node):
         if isinstance(node):
             return node.value
@@ -419,6 +414,7 @@ def extract_node(code: str, module_name: str = "") -> nodes.NodeNG:
         return extracted_with_none[0]
     return extracted_with_none
 
+
 def _extract_single_node(code: str, module_name: str = ""):
     """Call extract_node while making sure that only one value is returned."""
     ret = extract_node(code, module_name)
@@ -426,9 +422,10 @@ def _extract_single_node(code: str, module_name: str = ""):
         return ret[0]
     return ret
 
+
 def _parse_string(
     data: str, type_comments: bool = True
-)->tuple[ast.Module, ParserModule]:
+) -> tuple[ast.Module, ParserModule]:
     parser_module = get_parser_module(type_comments=type_comments)
     try:
         parsed = parser_module.parse(data + "\n", type_comments=type_comments)

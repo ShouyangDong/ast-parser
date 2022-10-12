@@ -6,3 +6,5 @@ flake8-typing-imports==1.13.0
 mypy==0.982
 pytest
 typing-extensions>=3.10
+pydocstringformatter==0.7.2
+pyupgrade

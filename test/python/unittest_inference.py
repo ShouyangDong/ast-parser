@@ -3,6 +3,7 @@ import pytest
 
 from parser.builder import parse
 
+
 def test_simple_tuple() -> None:
     module = parse(
         """
