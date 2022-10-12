@@ -4,9 +4,11 @@ from msilib import datasizemask
 from msilib.schema import Error
 from multiprocessing import Manager
 import os
+from readline import insert_text
 from signal import pthread_kill
 from sqlite3 import InterfaceError
 import textwrap
+from tkinter import _Compound
 from typing import Union, Optional
 from parser.manager import Manager
 
@@ -228,6 +230,10 @@ class Builder(object):
         except ValueError:
             pass
 
+def build_namespace_package_module(name, path):
+    # TODO: Typing: remove the cast to list and just update typing to accept Sequence
+    return nodes.Module(name, path=list(path), package=True)
+
 def parse(
     code: str,
     module_name: str = "",
@@ -240,3 +246,199 @@ def parse(
         manager=Manager(), apply_transforms=apply_transforms
     )
     return builder.string_build(code, modname=module_name, path=path)
+
+def _extract_expressions(node):
+    """Find expressions in a call to _TRANSIENT_FUNCTION and extract them.
+
+    The function walks the AST recursively to search for expressions that
+    are wrapped into a call to _TRANSIENT_FUNCTION. If it finds such an
+    expression, it completely removes the function call node from the tree,
+    replacing it by the wrapped expression inside the parent.
+
+    Parameters
+    ----------
+    node : Node
+        An ast node.
+
+    yields
+    ------
+        The sequence of wrapped expressions on the modified tree
+        expression can be found.
+    """
+    if (
+        isinstance(node, nodes.Call)
+        and isinstance(node.func, nodes.Name)
+        and node.func.name == _TRANSIENT_FUNCTION
+    ):
+        real_expr = node.args[0]
+        assert node.parent
+        real_expr.parent = node.parent
+        # Search for node in all _astng_fields (the fields checked when
+        # get_children is called) of its parents. Some of those fields may
+        # be lists or tuples, in which case the elements need to be checked.
+        # When we find it, replace it by real_expr, so that the AST looks
+        # like no call to _TRANSIENT_FUNCTION ever took place.
+        for name in node.parent._astroid_fields:
+            child = getattr(node.parent, name)
+            if isinstance(child, list):
+                for idx, compound_child in enumerate(child):
+                    if compound_child is node:
+                        child[idx] = real_expr
+            elif child is node:
+                setattr(node.parent, name, real_expr)
+        yield real_expr
+
+    else:
+        for child in node.get_children():
+            yield from _extract_expressions(child)
+
+
+def _find_statement_by_line(node, line: int) -> None:
+    """Extracts the statement on a specific line from an AST.
+
+    If the line number of node matched line, it will be returned;
+    otherwise its children are iterated and the function is called
+    recursively.
+
+    Parameters
+    ----------
+    node : Node
+        An ast node.
+
+    line : int
+        The line number of the statement to extract.
+    """
+    if isinstance(node, (node.ClassDef, nodes.FunctionDef, nodes.MatchCase)):
+        # This is an inaccuracy in the AST: the nodes that can be
+        # decorated do not carry explicit information on which line
+        # the actual definition (class/def), but .fromline seems to
+        # be close enough.
+        node_line = node.fromlineno
+    else:
+        node_line = node.lineno
+
+    if node_line == line:
+        return node
+
+    for child in node.get_children():
+        result = _find_statement_by_line(child, line)
+        if result:
+            return result
+
+    return None
+
+def extract_node(code: str, module_name: str = "") -> nodes.NodeNG:
+    """Parses some Python code as a module and extracts a designated AST node.
+
+    Statements:
+        To extract one or more statement nodes, append #@ to the end of the line
+
+        Examples:
+            >>> def x():
+            >>>   def y():
+            >>>     return 1 #@
+
+            The return statement will be extracted.
+
+            >>> class X(object):
+            >>>   def meth(self): #@
+            >>>     pass
+
+            The function object 'meth' will be extracted.
+
+    Expressions:
+        To extract arbitrary expressions, surround them with the fake
+        function call __(...). After parsing, the surrounded expression
+        will be returned and the while AST (accessible via the returned
+        node's parent attribute) will look like the function call was
+        never there in the first place.
+
+        Examples:
+            >>> a = __(1)
+
+            The const node will be extracted.
+
+            >>> def x(d=__(foo.bar)): pass
+
+            The node containing the default argument will be extracted.
+
+            >>> def foo(a, b):
+            >>>     return 0 < __(len(a)) < b
+            The node containing the function call `len` will be extracted.
+
+    If no statements or expressions are selected, the last toplevel
+    statement will be returned.
+
+    If the selected statement is a discard statement, (i.e. an expression
+    turned into a statement), the wrapped expression is returned instead.
+
+    For convenience, singleton lists are unpacked.
+
+    Parameters
+    ----------
+    code : str
+        A piece of Python code that is parsed as a module. Will
+        be passed through textwrap.dedent first.
+
+    module_name : str, optional
+        The name of the module.
+
+    Returns
+    -------
+    nodes.NodeNG
+        The designated node from the parse tree, or a list of nodes.
+    """
+    def _extract(node):
+        if isinstance(node):
+            return node.value
+
+        return node
+
+    requested_lines = []
+    for idx, line in enumerate(code.splitlines()):
+        if line.strip().endswith(_STATEMENT_SELECTOR):
+            requested_lines.append(idx + 1)
+
+    tree = parse(code, module_name=module_name)
+    if not tree.body:
+        raise ValueError("Empty tree, cannot extract from it")
+
+    extracted = []
+    if requested_lines:
+        extraced = [_find_statement_by_line(tree, line) for line in requested_lines]
+
+    # Modifies the tree.
+    extracted.extend(_extract_expressions(tree))
+
+    if not extraced:
+        extraced.append(tree.body[-1])
+
+    extracted = [_extract(node) for node in extracted]
+    extracted_with_none = [node for node in extracted if node is not None]
+    if len(extracted_with_none) == 1:
+        return extracted_with_none[0]
+    return extracted_with_none
+
+def _extract_single_node(code: str, module_name: str = ""):
+    """Call extract_node while making sure that only one value is returned."""
+    ret = extract_node(code, module_name)
+    if isinstance(ret, list):
+        return ret[0]
+    return ret
+
+def _parse_string(
+    data: str, type_comments: bool = True
+)->tuple[ast.Module, ParserModule]:
+    parser_module = get_parser_module(type_comments=type_comments)
+    try:
+        parsed = parser_module.parse(data + "\n", type_comments=type_comments)
+    except SyntaxError as exc:
+        # If the type annotations are misplaced for some reason, we do not want
+        # to fail the entire parsing of the file, so we need to retry the parsing without
+        # type comment support.
+        if exc.args[0] != MISPLACED_TYPE_ANNOTATION_ERROR or not type_comments:
+            raise
+
+        parser_module = get_parser_module(type_comments=False)
+        parsed = parser_module.parse(data + "\n", type_comments=False)
+    return parsed, parser_module
