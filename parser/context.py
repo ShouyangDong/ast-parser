@@ -6,8 +6,9 @@ from pprint import pprint
 from subprocess import call
 from typing import Dict, Optional, Sequence, Tuple
 
+
 class InferenceContext:
-    """Provide context for inference
+    """Provide context for inference.
 
     Store already inferred nodes to save time.
     Account for already visited nodes to stop infinite recursion.
@@ -86,7 +87,8 @@ class InferenceContext:
 
         For example, each side of a binary operation (BinOp)
         starts with the same context but diverge as each side is inferred
-        so the InferenceContext will need be cloned."""
+        so the InferenceContext will need be cloned.
+        """
         # XXX copy lookupname/callcontext ?
         clone = InferenceContext(self.path.copy(), nodes_inferred=self._nodes_inferred)
         clone.callcontext = self.callcontext
@@ -108,13 +110,14 @@ class CallContext:
     __slots__ = ("args", "keywords", "callee")
 
     def __init__(self, args, keywords=None, callee=None) -> None:
-        self.args = args # Call positional arguments
+        self.args = args  # Call positional arguments
         if keywords:
             arg_value_pairs = [(arg.arg, arg.value) for arg in keywords]
         else:
             arg_value_pairs = []
-        self.keywords = arg_value_pairs # Call keyword arguments
-        self.callee = callee # Function being called
+        self.keywords = arg_value_pairs  # Call keyword arguments
+        self.callee = callee  # Function being called
+
 
 def copy_context(context=None) -> InferenceContext:
     """Clone a context if given, or return a fresh context."""
@@ -122,6 +125,7 @@ def copy_context(context=None) -> InferenceContext:
         return context.clone()
 
     return InferenceContext()
+
 
 def bind_context_to_node(context: Context, node: Node) -> InferenceContext:
     """Given a context a boundnode to retrieve the correct function name or
